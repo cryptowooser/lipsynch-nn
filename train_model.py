@@ -9,8 +9,34 @@ import glob
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
+import random
+from datetime import datetime
 
-writer = SummaryWriter('runs/lipsync_experiment_1')
+
+def create_run_name(nouns_file, adjectives_file):
+    # Read in the nouns and adjectives
+    with open(nouns_file, 'r') as f:
+        nouns = [line.strip() for line in f.readlines()]
+    with open(adjectives_file, 'r') as f:
+        adjectives = [line.strip() for line in f.readlines()]
+
+    # Randomly select a noun and adjective
+    noun = random.choice(nouns)
+    adjective = random.choice(adjectives)
+
+    # Get current date and time
+    now = datetime.now()
+
+    # Format as a string
+    now_str = now.strftime("%Y%m%d-%H%M%S")
+
+    # Construct run name
+    run_name = f"lipsync_{adjective}_{noun}_{now_str}"
+
+    return run_name
+
+run_name = create_run_name('english-nouns.txt', 'english-adjectives.txt')
+writer = SummaryWriter(f'runs/{run_name}')
 
 #Constants
 sample_rate = 44100  # Your actual sample rate
@@ -36,7 +62,7 @@ def resample_audio(file_path, target_sr=44100):
 
     # If the current sample rate is not the target sample rate, resample
     if sr != target_sr:
-        y = librosa.resample(y, sr, target_sr)
+        y = librosa.resample(y=y, orig_sr=sr, target_sr=target_sr)
 
     return y, target_sr
 
@@ -226,11 +252,11 @@ def collate_fn(batch):
 
 from torch.utils.data import DataLoader
 
-batch_size = 64 # You can adjust this value based on your system's memory
+batch_size = 128 # You can adjust this value based on your system's memory
 
 # Create the DataLoaders
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
-val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
+val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=4)
 
 first_batch = next(iter(train_dataloader))
 
@@ -272,7 +298,7 @@ input_size = 13
 hidden_size = 256
 output_size = len(letter_to_int)
 print(f"Output Size: {output_size}")
-num_layers = 2
+num_layers = 3
 model = LipSyncNet(input_size, hidden_size, output_size, num_layers).to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -280,7 +306,7 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
 
 
 # Number of epochs to train for
-num_epochs = 20
+num_epochs = 1
 
 for epoch in range(num_epochs):
     model.train()
@@ -341,5 +367,12 @@ for epoch in range(num_epochs):
     val_loss /= len(val_dataloader)
 
     print(f'Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}')
+    torch.save({
+            'epoch': epoch+1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+            }, f"model_{epoch+1}.pth")
+
 torch.save(model.state_dict(), 'model.pth')
 writer.close()
