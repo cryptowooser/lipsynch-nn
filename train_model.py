@@ -11,6 +11,13 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import random
 from datetime import datetime
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from sklearn.model_selection import train_test_split
+
+#Constants
+sample_rate = 44100  
+hop_length = 512  
 
 
 def create_run_name(nouns_file, adjectives_file):
@@ -35,27 +42,7 @@ def create_run_name(nouns_file, adjectives_file):
 
     return run_name
 
-run_name = create_run_name('english-nouns.txt', 'english-adjectives.txt')
-writer = SummaryWriter(f'runs/{run_name}')
 
-#Constants
-sample_rate = 44100  # Your actual sample rate
-hop_length = 512  # Your actual hop length
-
-
-
-'''
-def process_audio(filename):
-    # Load the audio file
-    y, sr = librosa.load(filename, sr=None)
-    # Compute MFCC features
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=hop_length)
-    # Transpose to make the time dimension first
-    mfcc = mfcc.T
-    # Get the total number of frames
-    total_frames = mfcc.shape[0]
-    return mfcc, total_frames
-'''
 def resample_audio(file_path, target_sr=44100):
     # Load the audio file
     y, sr = librosa.load(file_path, sr=None)
@@ -125,33 +112,9 @@ class LipSyncDataset(torch.utils.data.Dataset):
         return torch.from_numpy(audio).float(), torch.tensor(text, dtype=torch.long)
 
 
-'''
-def pad_sequence(batch):
-    # Each element in 'batch' is a tuple (audio, shapes)
-    # Sort the batch in the descending order
-    sorted_batch = sorted(batch, key=lambda x: x[0].shape[0], reverse=True)
-    # Get each sequence and pad it
-    sequences = [x[0] for x in sorted_batch]
-    sequences_padded = torch.nn.utils.rnn.pad_sequence(sequences, batch_first=True)
-    # Also need to store the length of each sequence
-    # This is later needed in order to unpad the sequences
-    lengths = torch.LongTensor([len(x) for x in sequences])
-    # Don't forget to grab the labels
-    labels = torch.LongTensor(list(map(lambda x: x[1], sorted_batch)))
-    return sequences_padded, lengths, labels
-'''
-# Set up DataLoader
-audio_files = sorted(glob.glob('wavs/*.wav'))
-text_files = sorted(glob.glob('texts/*.txt'))
-
-dataset = LipSyncDataset(audio_files, text_files)
-# dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, collate_fn=pad_sequence)
-
-letter_to_int = {chr(i + 65): i for i in range(7)} 
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 
 def plot_item(index):
+    letter_to_int = {chr(i + 65): i for i in range(7)} 
     # Get the first item in the dataset
     audio, labels = dataset[0]
 
@@ -189,6 +152,7 @@ def plot_item(index):
 
 
 def plot_batch(batch):
+    letter_to_int = {chr(i + 65): i for i in range(7)} 
     # Get the first item in the batch
     audio, labels = batch[0][0], batch[1][0]
 
@@ -217,48 +181,6 @@ def plot_batch(batch):
     plt.tight_layout()
     plt.show()
 
-
-
-from sklearn.model_selection import train_test_split
-
-# Pair the audio and text files together
-all_files = list(zip(audio_files, text_files))
-
-# Perform the split
-train_files, val_files = train_test_split(all_files, test_size=0.2)
-
-# Unzip the file pairs for each set
-train_audio_files, train_text_files = zip(*train_files)
-val_audio_files, val_text_files = zip(*val_files)
-
-# Create the datasets
-train_dataset = LipSyncDataset(train_audio_files, train_text_files)
-val_dataset = LipSyncDataset(val_audio_files, val_text_files)
-
-
-#Define the Collate_Function
-def collate_fn(batch):
-    # Separate the audio tensors and the label lists
-    audios, labels = zip(*batch)
-
-    # Pad the audio tensors and the labels
-    # Note: We use 0 padding for audios and -1 for labels, assuming -1 is not a valid label
-    audios_padded = torch.nn.utils.rnn.pad_sequence(audios, batch_first=True)
-    labels_padded = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=-1)
-
-    # Return the padded audios and labels as a batch
-    return audios_padded, labels_padded
-
-
-from torch.utils.data import DataLoader
-
-batch_size = 128 # You can adjust this value based on your system's memory
-
-# Create the DataLoaders
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4)
-val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=4)
-
-first_batch = next(iter(train_dataloader))
 
 class LipSyncNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_layers):
@@ -290,89 +212,151 @@ class LipSyncNet(nn.Module):
 
         return out
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(device)
+#Define the Collate_Function
+def collate_fn(batch):
+    # Separate the audio tensors and the label lists
+    audios, labels = zip(*batch)
 
-# Create the model, loss function and optimizer
-input_size = 13
-hidden_size = 256
-output_size = len(letter_to_int)
-print(f"Output Size: {output_size}")
-num_layers = 3
-model = LipSyncNet(input_size, hidden_size, output_size, num_layers).to(device)
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+    # Pad the audio tensors and the labels
+    # Note: We use 0 padding for audios and -1 for labels, assuming -1 is not a valid label
+    audios_padded = torch.nn.utils.rnn.pad_sequence(audios, batch_first=True)
+    labels_padded = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=-1)
+
+    # Return the padded audios and labels as a batch
+    return audios_padded, labels_padded
+#--------- MAIN FUNCTION ---------
+def main():
+    run_name = create_run_name('english-nouns.txt', 'english-adjectives.txt')
+    writer = SummaryWriter(f'runs/{run_name}')
 
 
-# Number of epochs to train for
-num_epochs = 1
 
-for epoch in range(num_epochs):
-    model.train()
-    train_loss = 0
-    for i, batch in enumerate(train_dataloader):
-        # Get the input and target
-        audio, labels = batch
-        audio = audio.to(device)
-        labels = labels.to(device)
-        # Clear the gradients
-        optimizer.zero_grad()
-        # Forward propagation
-        outputs = model(audio)
-        
-        # Create a mask by filtering out all labels values equal to -1 (the pad token)
-        mask = (labels.view(-1) != -1).to(device)
-        
-        # We apply the mask to the outputs and labels tensors
-        outputs = outputs.view(-1, output_size)[mask]
-        labels = labels.view(-1)[mask]
+    # Set up DataLoader
+    audio_files = sorted(glob.glob('wavs/*.wav'))
+    text_files = sorted(glob.glob('texts/*.txt'))
 
-        # Compute the loss and do backprop
-        loss = criterion(outputs, labels)
-        loss.backward()
-        # Update the weights
-        optimizer.step()
-        # Accumulate the loss
-        train_loss += loss.item()
-        scheduler.step()
-        writer.add_scalar('Training Loss', loss.item(), global_step=epoch * len(train_dataloader) + i)
-    # Compute the average training loss for this epoch
-    train_loss /= len(train_dataloader)
+    dataset = LipSyncDataset(audio_files, text_files)
+    # dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, collate_fn=pad_sequence)
 
-    model.eval()
-    val_loss = 0
-    with torch.no_grad():
-        for i, batch in enumerate(val_dataloader):
+
+
+
+
+
+    # Pair the audio and text files together
+    all_files = list(zip(audio_files, text_files))
+
+    # Perform the split
+    train_files, val_files = train_test_split(all_files, test_size=0.2)
+
+    # Unzip the file pairs for each set
+    train_audio_files, train_text_files = zip(*train_files)
+    val_audio_files, val_text_files = zip(*val_files)
+
+    # Create the datasets
+    train_dataset = LipSyncDataset(train_audio_files, train_text_files)
+    val_dataset = LipSyncDataset(val_audio_files, val_text_files)
+
+
+
+    from torch.utils.data import DataLoader
+
+    batch_size = 128 # You can adjust this value based on your system's memory
+
+    # Create the DataLoaders
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4, pin_memory=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=4, pin_memory=True)
+
+    first_batch = next(iter(train_dataloader))
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
+
+    # Create the model, loss function and optimizer
+    letter_to_int = {chr(i + 65): i for i in range(7)} 
+    input_size = 13
+    hidden_size = 256
+    output_size = len(letter_to_int)
+    print(f"Output Size: {output_size}")
+    num_layers = 3
+    model = LipSyncNet(input_size, hidden_size, output_size, num_layers).to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+
+
+    # Number of epochs to train for
+    num_epochs = 20
+
+    for epoch in range(num_epochs):
+        model.train()
+        train_loss = 0
+        for i, batch in enumerate(train_dataloader):
             # Get the input and target
             audio, labels = batch
             audio = audio.to(device)
             labels = labels.to(device)
+            # Clear the gradients
+            optimizer.zero_grad()
             # Forward propagation
             outputs = model(audio)
             
             # Create a mask by filtering out all labels values equal to -1 (the pad token)
             mask = (labels.view(-1) != -1).to(device)
-        
+            
             # We apply the mask to the outputs and labels tensors
             outputs = outputs.view(-1, output_size)[mask]
             labels = labels.view(-1)[mask]
 
-            # Compute the loss
+            # Compute the loss and do backprop
             loss = criterion(outputs, labels)
+            loss.backward()
+            # Update the weights
+            optimizer.step()
             # Accumulate the loss
-            val_loss += loss.item()
-            writer.add_scalar('Validation Loss', loss.item(), global_step=epoch * len(train_dataloader) + i)
-    # Compute the average validation loss for this epoch
-    val_loss /= len(val_dataloader)
+            train_loss += loss.item()
+            scheduler.step()
+            writer.add_scalar('Training Loss', loss.item(), global_step=epoch * len(train_dataloader) + i)
+        # Compute the average training loss for this epoch
+        train_loss /= len(train_dataloader)
 
-    print(f'Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}')
-    torch.save({
-            'epoch': epoch+1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': loss,
-            }, f"model_{epoch+1}.pth")
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for i, batch in enumerate(val_dataloader):
+                # Get the input and target
+                audio, labels = batch
+                audio = audio.to(device)
+                labels = labels.to(device)
+                # Forward propagation
+                outputs = model(audio)
+                
+                # Create a mask by filtering out all labels values equal to -1 (the pad token)
+                mask = (labels.view(-1) != -1).to(device)
+            
+                # We apply the mask to the outputs and labels tensors
+                outputs = outputs.view(-1, output_size)[mask]
+                labels = labels.view(-1)[mask]
 
-torch.save(model.state_dict(), 'model.pth')
-writer.close()
+                # Compute the loss
+                loss = criterion(outputs, labels)
+                # Accumulate the loss
+                val_loss += loss.item()
+                writer.add_scalar('Validation Loss', loss.item(), global_step=epoch * len(train_dataloader) + i)
+        # Compute the average validation loss for this epoch
+        val_loss /= len(val_dataloader)
+
+        print(f'Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}')
+        torch.save({
+                'epoch': epoch+1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': loss,
+                }, f"model_{epoch+1}.pth")
+
+    torch.save(model.state_dict(), 'model.pth')
+    writer.close()
+
+
+if __name__ == '__main__':
+    main()

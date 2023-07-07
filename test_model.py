@@ -260,7 +260,7 @@ input_size = 13
 hidden_size = 256
 output_size = len(letter_to_int)
 print(f"Output Size: {output_size}")
-num_layers = 2
+num_layers = 3
 device='cuda'
 
 model = LipSyncNet(output_size=output_size, input_size=input_size,hidden_size=hidden_size,num_layers=num_layers)
