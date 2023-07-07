@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 import glob 
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 #Constants
 sample_rate = 44100  # Your actual sample rate
@@ -16,21 +19,39 @@ hop_length = 512  # Your actual hop length
 
 
 
-def process_audio(filename):
+def resample_audio(file_path, target_sr=44100):
     # Load the audio file
-    y, sr = librosa.load(filename, sr=None)
-    # Compute MFCC features
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=hop_length)
-    # Transpose to make the time dimension first
-    mfcc = mfcc.T
+    y, sr = librosa.load(file_path, sr=None)
+
+    # If the current sample rate is not the target sample rate, resample
+    if sr != target_sr:
+        y = librosa.resample(y, sr, target_sr)
+
+    return y, target_sr
+
+
+def process_audio(filename, save_dir):
+    save_filename = os.path.join(save_dir, os.path.basename(filename) + '.npy')
+    # Check if the file is already processed
+    if os.path.exists(save_filename):
+        # If so, load the MFCC from disk instead of re-computing it
+        mfcc = np.load(save_filename)
+    else:
+        # If not, compute the MFCC and save it to disk
+        y, sr = resample_audio(filename,sample_rate)
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=hop_length)
+        mfcc = mfcc.T
+        np.save(save_filename, mfcc)
+
     # Get the total number of frames
     total_frames = mfcc.shape[0]
+
     return mfcc, total_frames
 
 
 def process_text(filename, total_frames):
     # Define mapping from letters to integers
-    letter_to_int = {chr(i + 65): i for i in range(9)}
+    letter_to_int = {chr(i + 65): i for i in range(7)}
     # Read the file
     with open(filename, 'r') as f:
         lines = f.readlines()
@@ -62,8 +83,9 @@ class LipSyncDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         audio_file = self.audio_files[idx]
         text_file = self.text_files[idx]
-        audio, total_frames = process_audio(audio_file)
+        audio, total_frames = process_audio(audio_file, 'mfccs')
         text = process_text(text_file, total_frames)
+
 
         return torch.from_numpy(audio).float(), torch.tensor(text, dtype=torch.long)
 
@@ -90,7 +112,7 @@ text_files = sorted(glob.glob('texts/*.txt'))
 dataset = LipSyncDataset(audio_files, text_files)
 # dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, collate_fn=pad_sequence)
 
-letter_to_int = {chr(i + 65): i for i in range(9)} 
+letter_to_int = {chr(i + 65): i for i in range(7)} 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
@@ -113,7 +135,7 @@ def plot_item(index):
 
     # Plot the labels
     # Get 26 colors from the 'tab20' colormap
-    colors = plt.get_cmap('tab20')(np.linspace(0, 1, 9))
+    colors = plt.get_cmap('tab20')(np.linspace(0, 1, 7))
     cmap = mcolors.ListedColormap(colors)
 
     norm = mcolors.BoundaryNorm(np.arange(len(letter_to_int)+1)-0.5, len(letter_to_int))  # map integer labels to colors
@@ -148,7 +170,7 @@ def plot_batch(batch):
 
     # Plot the labels
     # Get 26 colors from the 'tab20' colormap
-    colors = plt.get_cmap('tab20')(np.linspace(0, 1, 9))
+    colors = plt.get_cmap('tab20')(np.linspace(0, 1, 7))
     cmap = mcolors.ListedColormap(colors)
 
     norm = mcolors.BoundaryNorm(np.arange(len(letter_to_int)+1)-0.5, len(letter_to_int))  # map integer labels to colors
@@ -206,18 +228,26 @@ first_batch = next(iter(train_dataloader))
 class LipSyncNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_layers):
         super(LipSyncNet, self).__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True)
+        self.conv1 = nn.Conv1d(input_size, hidden_size, kernel_size=3, padding=1)
+        self.lstm = nn.LSTM(hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=0.2)
+#        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=0.2)
         self.fc = nn.Linear(hidden_size*2, output_size)
-
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size 
+    
     def forward(self, x):
+
+        x = x.permute(0, 2, 1) # permute the dimensions
+        x = self.conv1(x)
+        x = F.relu(x)
+
         # Initialize hidden state and cell state
         h0 = torch.zeros(self.num_layers*2, x.size(0), self.hidden_size).to(x.device)
         c0 = torch.zeros(self.num_layers*2, x.size(0), self.hidden_size).to(x.device)
         
         # Pass through LSTM
+        x = x.permute(0, 2, 1) # permute the dimensions
+
         out, _ = self.lstm(x, (h0, c0))
 
         # Pass through FC layer to get predictions for each time step
@@ -226,7 +256,7 @@ class LipSyncNet(nn.Module):
         return out
 
 # Instantiate the model
-output_size =9 
+output_size =7
 input_size = 13
 hidden_size = 256
 output_size = len(letter_to_int)
@@ -273,3 +303,18 @@ precision = precision_score(all_labels, all_outputs, average='macro')  # Set the
 recall = recall_score(all_labels, all_outputs, average='macro')  # Set the average parameter as you need
 
 print(f'Accuracy: {accuracy:.4f}, F1 Score: {f1:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}')
+
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Calculate the confusion matrix
+cm = confusion_matrix(all_labels, all_outputs)
+
+# Visualize the confusion matrix (optional)
+plt.figure(figsize=(10, 10))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.title('Confusion matrix')
+plt.show()

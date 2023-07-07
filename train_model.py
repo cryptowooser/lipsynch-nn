@@ -61,7 +61,7 @@ def process_audio(filename, save_dir):
 
 def process_text(filename, total_frames):
     # Define mapping from letters to integers
-    letter_to_int = {chr(i + 65): i for i in range(9)}
+    letter_to_int = {chr(i + 65): i for i in range(7)}
     # Read the file
     with open(filename, 'r') as f:
         lines = f.readlines()
@@ -121,7 +121,7 @@ text_files = sorted(glob.glob('texts/*.txt'))
 dataset = LipSyncDataset(audio_files, text_files)
 # dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, collate_fn=pad_sequence)
 
-letter_to_int = {chr(i + 65): i for i in range(9)} 
+letter_to_int = {chr(i + 65): i for i in range(7)} 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
@@ -237,17 +237,26 @@ first_batch = next(iter(train_dataloader))
 class LipSyncNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_layers):
         super(LipSyncNet, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=0.2)
+        self.conv1 = nn.Conv1d(input_size, hidden_size, kernel_size=3, padding=1)
+        self.lstm = nn.LSTM(hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=0.2)
+#        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=0.2)
         self.fc = nn.Linear(hidden_size*2, output_size)
         self.num_layers = num_layers
         self.hidden_size = hidden_size 
     
     def forward(self, x):
+
+        x = x.permute(0, 2, 1) # permute the dimensions
+        x = self.conv1(x)
+        x = F.relu(x)
+
         # Initialize hidden state and cell state
         h0 = torch.zeros(self.num_layers*2, x.size(0), self.hidden_size).to(x.device)
         c0 = torch.zeros(self.num_layers*2, x.size(0), self.hidden_size).to(x.device)
         
         # Pass through LSTM
+        x = x.permute(0, 2, 1) # permute the dimensions
+
         out, _ = self.lstm(x, (h0, c0))
 
         # Pass through FC layer to get predictions for each time step
@@ -263,7 +272,7 @@ input_size = 13
 hidden_size = 256
 output_size = len(letter_to_int)
 print(f"Output Size: {output_size}")
-num_layers = 3
+num_layers = 2
 model = LipSyncNet(input_size, hidden_size, output_size, num_layers).to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
