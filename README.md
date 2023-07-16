@@ -21,7 +21,6 @@ WAVs and TXTs should share the same filename ("001.wav" and "001.txt"). I had be
 ## To-Do List
 1. Convert from using .pth to using SafeTensors.
 2. Add video example to README.md.
-3. Build a proper requirements file. 
 
 
 ## Current Status
