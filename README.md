@@ -9,7 +9,9 @@ Please note, if your application does not require real-time performance, you mig
 ## How to Use
 For now, only inference is supported, as the training code is being heavily refactored. If for some reason you need to train your own model and can't wait, let me know. 
 For inference, use the following command:
+```
 python .\inference.py --wav_file_name .\001.wav --model_name model_full_dataset_2layers.pth  
+```
 
 
 ## To-Do List
