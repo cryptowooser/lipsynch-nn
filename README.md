@@ -1,6 +1,6 @@
-# Rhubarb Lip Sync - Neural Network Implementation
+# Lip Sync - Neural Network Rhubarb Replication
 
-This is a Python neural network implementation of [Rhubarb Lip Sync](https://github.com/DanielSWolf/rhubarb-lip-sync), designed to enable complex lip movement for real-time chatbots.
+This is a Python neural network replication of [Rhubarb Lip Sync](https://github.com/DanielSWolf/rhubarb-lip-sync), designed to enable complex lip movement for real-time chatbots.
 
 This project utilizes a simple neural network trained on pairs of spoken texts and Rhubarb Lip Sync outputs, approximating lip movements with around 75% accuracy. This level of accuracy is sufficient for generating a sense of realism in most applications.
 
