@@ -260,13 +260,19 @@ input_size = 13
 hidden_size = 256
 output_size = len(letter_to_int)
 print(f"Output Size: {output_size}")
-num_layers = 3
+num_layers = 4
 device='cuda'
 
 model = LipSyncNet(output_size=output_size, input_size=input_size,hidden_size=hidden_size,num_layers=num_layers)
 
+load_full_model = True 
+model_name = 'model_15.pth'
 # Load the saved state dictionary
-model.load_state_dict(torch.load('model.pth'))
+if load_full_model:
+    checkpoint = torch.load(model_name)
+    model.load_state_dict(checkpoint['model_state_dict'])
+else:
+    model.load_state_dict(torch.load(model_name))
 model = model.to(device)
 # Make sure to call .eval() on the model for evaluation!
 model.eval()

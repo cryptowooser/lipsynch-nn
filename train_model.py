@@ -186,8 +186,8 @@ class LipSyncNet(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_layers):
         super(LipSyncNet, self).__init__()
         self.conv1 = nn.Conv1d(input_size, hidden_size, kernel_size=3, padding=1)
+        self.dropout = nn.Dropout(.2)
         self.lstm = nn.LSTM(hidden_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=0.2)
-#        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=0.2)
         self.fc = nn.Linear(hidden_size*2, output_size)
         self.num_layers = num_layers
         self.hidden_size = hidden_size 
@@ -197,7 +197,7 @@ class LipSyncNet(nn.Module):
         x = x.permute(0, 2, 1) # permute the dimensions
         x = self.conv1(x)
         x = F.relu(x)
-
+        x = self.dropout(x)
         # Initialize hidden state and cell state
         h0 = torch.zeros(self.num_layers*2, x.size(0), self.hidden_size).to(x.device)
         c0 = torch.zeros(self.num_layers*2, x.size(0), self.hidden_size).to(x.device)
@@ -261,7 +261,7 @@ def main():
 
     from torch.utils.data import DataLoader
 
-    batch_size = 128 # You can adjust this value based on your system's memory
+    batch_size = 256 # You can adjust this value based on your system's memory
 
     # Create the DataLoaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4, pin_memory=True)
@@ -278,11 +278,15 @@ def main():
     hidden_size = 256
     output_size = len(letter_to_int)
     print(f"Output Size: {output_size}")
-    num_layers = 3
+    num_layers = 4
     model = LipSyncNet(input_size, hidden_size, output_size, num_layers).to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.002)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+
+    #AMP Optimizations
+    from torch.cuda.amp import autocast, GradScaler
+    scaler = torch.cuda.amp.GradScaler()
 
 
     # Number of epochs to train for
@@ -299,23 +303,30 @@ def main():
             # Clear the gradients
             optimizer.zero_grad()
             # Forward propagation
-            outputs = model(audio)
-            
-            # Create a mask by filtering out all labels values equal to -1 (the pad token)
-            mask = (labels.view(-1) != -1).to(device)
-            
-            # We apply the mask to the outputs and labels tensors
-            outputs = outputs.view(-1, output_size)[mask]
-            labels = labels.view(-1)[mask]
+            with torch.cuda.amp.autocast():
+                outputs = model(audio)
+                
+                # Create a mask by filtering out all labels values equal to -1 (the pad token)
+                mask = (labels.view(-1) != -1).to(device)
+                
+                # We apply the mask to the outputs and labels tensors
+                outputs = outputs.view(-1, output_size)[mask]
+                labels = labels.view(-1)[mask]
 
-            # Compute the loss and do backprop
-            loss = criterion(outputs, labels)
-            loss.backward()
-            # Update the weights
-            optimizer.step()
+                # Compute the loss and do backprop
+                loss = criterion(outputs, labels)
+
+            #Gradscaler Phase
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+
+
             # Accumulate the loss
-            train_loss += loss.item()
             scheduler.step()
+
+            train_loss += loss.item()
+
             writer.add_scalar('Training Loss', loss.item(), global_step=epoch * len(train_dataloader) + i)
         # Compute the average training loss for this epoch
         train_loss /= len(train_dataloader)
@@ -333,7 +344,8 @@ def main():
                 
                 # Create a mask by filtering out all labels values equal to -1 (the pad token)
                 mask = (labels.view(-1) != -1).to(device)
-            
+
+                #Enable Autocast 
                 # We apply the mask to the outputs and labels tensors
                 outputs = outputs.view(-1, output_size)[mask]
                 labels = labels.view(-1)[mask]
