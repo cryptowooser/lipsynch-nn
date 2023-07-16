@@ -24,11 +24,10 @@ class LipSyncDataset(torch.utils.data.Dataset):
         text_file = self.text_files[idx]
         audio, total_frames = self.__process_audio(audio_file, 'mfccs')
         text = self.__process_text(text_file, total_frames)
-
         return torch.from_numpy(audio).float(), torch.tensor(text,
                                                              dtype=torch.long)
 
-    def __process_text(filename, total_frames):
+    def __process_text(self, filename, total_frames):
         # Define mapping from letters to integers
         letter_to_int = {chr(i + 65): i for i in range(7)}
         # Read the file

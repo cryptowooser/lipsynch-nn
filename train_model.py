@@ -16,8 +16,8 @@ import matplotlib.colors as mcolors
 from sklearn.model_selection import train_test_split
 
 #Constants
-sample_rate = 44100  
-hop_length = 512  
+SAMPLE_RATE = 44100  
+HOP_LENGTH = 512  
 
 
 def create_run_name(nouns_file, adjectives_file):
@@ -62,8 +62,8 @@ def process_audio(filename, save_dir):
         mfcc = np.load(save_filename)
     else:
         # If not, compute the MFCC and save it to disk
-        y, sr = resample_audio(filename,sample_rate)
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=hop_length)
+        y, sr = resample_audio(filename,SAMPLE_RATE)
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, HOP_LENGTH=HOP_LENGTH)
         mfcc = mfcc.T
         np.save(save_filename, mfcc)
 
@@ -88,7 +88,7 @@ def process_text(filename, total_frames):
         shape_id = letter_to_int[shape]
 
         # Convert time to frame index
-        index = int(time * sample_rate / hop_length)
+        index = int(time * SAMPLE_RATE / HOP_LENGTH)
 
         # Set all future frames to this shape, until we find a new shape
         labels[index:] = shape_id
